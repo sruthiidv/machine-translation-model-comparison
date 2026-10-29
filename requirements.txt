@@ -1,0 +1,14 @@
+torch>=2.2
+datasets>=2.18,<4.0
+tokenizers>=0.15
+transformers>=4.45,<5.0
+accelerate>=0.30
+sentencepiece>=0.2
+sacrebleu>=2.4
+pyyaml>=6.0
+pandas>=2.0
+matplotlib>=3.7
+seaborn>=0.13
+tqdm>=4.66
+pytest>=8.0
+jupyter>=1.0
