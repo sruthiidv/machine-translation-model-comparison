@@ -1,0 +1,19 @@
+{
+  "status": "completed",
+  "finite": true,
+  "model_name": "google/mt5-small",
+  "training_seconds": 47.10521707900011,
+  "validation_loss": 14.159671611785889,
+  "steps": 300,
+  "parameters": 300176768,
+  "parameters_updated": 300176768,
+  "device": "cuda",
+  "adaptation": "full fine-tuning",
+  "checkpoint_type": "model-only",
+  "optimizer_state_saved": false,
+  "note": "Model-only checkpoints cannot provide exact optimizer-state resumption.",
+  "inference_seconds_including_tokenization": 31.20554521400004,
+  "inference_sentences": 500,
+  "seconds_per_sentence": 0.06241109042800008,
+  "sentences_per_second": 16.022793275077284
+}

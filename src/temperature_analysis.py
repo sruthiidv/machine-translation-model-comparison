@@ -25,10 +25,19 @@ def run(config, data_dir: str, output_dir: str, smoke: bool = False) -> pd.DataF
                     predictions = generate_mt5_sampling(config, data_dir, output_dir, temperature, seed, smoke)
                 else:
                     predictions = generate_model(config, data_dir, output_dir, model_key, smoke, True, temperature, seed)
+                expected = 16 if smoke else config["evaluation"]["sampling_subset_size"]
+                if len(predictions) != expected:
+                    raise RuntimeError(
+                        f"Temperature run incomplete for {model_key}, temperature={temperature}, seed={seed}: "
+                        f"expected {expected} predictions, got {len(predictions)}."
+                    )
                 hypotheses, references = [x["prediction"] for x in predictions], [x["target"] for x in predictions]
                 rows.append({"model": model_key, "temperature": temperature, "seed": seed, "bleu": sacrebleu.corpus_bleu(hypotheses, [references]).score, "chrf": sacrebleu.corpus_chrf(hypotheses, [references]).score})
     frame = pd.DataFrame(rows)
     temperature_dir = Path(output_dir) / "temperature"
+    if len(rows) != len(config["evaluation"]["sampling_temperatures"]) * len(seeds) * 4:
+        raise RuntimeError(f"Temperature analysis incomplete: expected {len(config['evaluation']['sampling_temperatures']) * len(seeds) * 4} rows, got {len(rows)}.")
+    temperature_dir.mkdir(parents=True, exist_ok=True)
     frame.to_csv(temperature_dir / "metrics.csv", index=False)
     if not frame.empty:
         aggregate = frame.groupby(["model", "temperature"]).agg(

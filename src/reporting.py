@@ -20,6 +20,17 @@ def generate_reports(output_dir: str | Path, reports_dir: str | Path = "reports"
     metrics = pd.read_csv(metrics_path) if metrics_path.exists() else pd.DataFrame()
     history_dir = output / "training_history"
     histories = {path.stem: _read_json(path) for path in history_dir.glob("*.json")}
+    review_path = output / "ethical_review.jsonl"
+    review_rows = []
+    if review_path.exists():
+        seen_models = set()
+        for line in review_path.read_text(encoding="utf-8").splitlines():
+            if not line.strip():
+                continue
+            row = json.loads(line)
+            if row.get("model") not in seen_models:
+                review_rows.append(row)
+                seen_models.add(row.get("model"))
     if metrics.empty:
         comparison = "No full-run metrics are available yet. Run the full pipeline before making performance claims."
     else:
@@ -54,3 +65,17 @@ def generate_reports(output_dir: str | Path, reports_dir: str | Path = "reports"
         "targeted challenge cases kept outside benchmark scores, and escalation for high-stakes use.\n",
         encoding="utf-8",
     )
+    ethics_path = reports / "ethical_analysis.md"
+    ethics_text = ethics_path.read_text(encoding="utf-8")
+    ethics_text += "\n## Representative translations for human review\n\n"
+    ethics_text += "These examples are copied from the saved outputs. They are not automatic ethical judgments; "
+    ethics_text += "a bilingual reviewer must assess them and replace `pending` only with evidence.\n\n"
+    for row in review_rows:
+        ethics_text += (
+            f"### {row.get('model', 'unknown')} — {row.get('example_id', 'unknown')}\n\n"
+            f"- Source: {row.get('source', '')}\n"
+            f"- Reference: {row.get('target', '')}\n"
+            f"- Prediction: {row.get('prediction', '')}\n"
+            f"- Review status: `{row.get('human_label', 'pending')}`\n\n"
+        )
+    ethics_path.write_text(ethics_text, encoding="utf-8")

@@ -1,0 +1,11 @@
+{
+  "training_seconds": "N/A — prompting only",
+  "inference_seconds_including_tokenization": 508.20226602800017,
+  "inference_sentences": 500,
+  "seconds_per_sentence": 1.0164045320560002,
+  "sentences_per_second": 0.9838602332647839,
+  "parameters": 1235814400,
+  "parameters_updated": 0,
+  "adaptation": "few-shot prompting",
+  "model_name": "meta-llama/Llama-3.2-1B-Instruct"
+}

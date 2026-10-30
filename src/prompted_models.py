@@ -58,6 +58,8 @@ def generate_model(config: dict[str, Any], data_dir: str, output_dir: str, model
     test_records = read_split(data_dir, "test")
     if smoke:
         train_records, test_records = train_records[:3], test_records[:16]
+    elif sampling:
+        test_records = test_records[:config["evaluation"]["sampling_subset_size"]]
     examples = train_records[:config["prompted"]["few_shot_count"]]
     path = (Path(output_dir) / "temperature" / f"{model_key}_t{temperature}_seed{seed}.jsonl"
             if sampling else Path(output_dir) / "predictions" / f"{model_key}.jsonl")
@@ -83,9 +85,9 @@ def generate_model(config: dict[str, Any], data_dir: str, output_dir: str, model
         raw = tokenizer.decode(new_tokens, skip_special_tokens=True)
         prediction = raw.strip().splitlines()[0].strip() if raw.strip() else ""
         results.append({**record, "model": model_key, "prediction": prediction, "raw_output": raw, "temperature": temperature if sampling else None})
-        path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_text("\n".join(json.dumps(x, ensure_ascii=False) for x in results) + "\n", encoding="utf-8")
     elapsed = time.perf_counter() - started
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text("\n".join(json.dumps(x, ensure_ascii=False) for x in results) + "\n", encoding="utf-8")
     if not sampling:
         write_json(Path(output_dir) / "training_history" / f"{model_key}.json", {"training_seconds": "N/A — prompting only", "inference_seconds_including_tokenization": elapsed, "inference_sentences": len(results), "seconds_per_sentence": elapsed / len(results), "sentences_per_second": len(results) / elapsed, "parameters": sum(p.numel() for p in model.parameters()), "parameters_updated": 0, "adaptation": "few-shot prompting", "model_name": model_name})
     del model

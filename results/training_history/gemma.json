@@ -1,0 +1,11 @@
+{
+  "training_seconds": "N/A — prompting only",
+  "inference_seconds_including_tokenization": 896.8215272759999,
+  "inference_sentences": 500,
+  "seconds_per_sentence": 1.7936430545519997,
+  "sentences_per_second": 0.5575245294553721,
+  "parameters": 999885952,
+  "parameters_updated": 0,
+  "adaptation": "few-shot prompting",
+  "model_name": "google/gemma-3-1b-it"
+}

@@ -153,6 +153,8 @@ def _generate(config, data_dir, output_dir, model, tokenizer, model_key="mt5", s
     records = read_split(data_dir, "test")
     if smoke:
         records = records[:16]
+    elif sampling:
+        records = records[:config["evaluation"]["sampling_subset_size"]]
     results = []
     started = time.perf_counter()
     for record in records:
@@ -169,7 +171,8 @@ def _generate(config, data_dir, output_dir, model, tokenizer, model_key="mt5", s
         results.append({**record, "model": model_key, "prediction": tokenizer.decode(generated[0], skip_special_tokens=True),
                         "raw_output": generated[0].tolist(), "temperature": temperature if sampling else None})
         path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_text("\n".join(json.dumps(x, ensure_ascii=False) for x in results) + "\n", encoding="utf-8")
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text("\n".join(json.dumps(x, ensure_ascii=False) for x in results) + "\n", encoding="utf-8")
     history_path = Path(output_dir) / "training_history" / f"{model_key}.json"
     history = json.loads(history_path.read_text(encoding="utf-8")) if history_path.exists() else {}
     elapsed = time.perf_counter() - started

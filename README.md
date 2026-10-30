@@ -1,112 +1,131 @@
-# Comparative Machine Translation Using Transformer, mT5, LLaMA, and Gemma
+# Comparative Machine Translation
 
-## Problem and objectives
+This project compares English-to-French translation using:
 
-This project compares English-to-French translation on the public
-[Helsinki-NLP/opus_books](https://huggingface.co/datasets/Helsinki-NLP/opus_books) `en-fr` configuration:
-
-1. a PyTorch encoder-decoder Transformer trained from scratch;
-2. `google/mt5-small` fine-tuned on the training split;
-3. `meta-llama/Llama-3.2-1B-Instruct` with fixed training-only few-shot prompting; and
+1. a basic encoder-decoder Transformer trained from scratch;
+2. `google/mt5-small` fine-tuned with supervised parallel data;
+3. `meta-llama/Llama-3.2-1B-Instruct` with fixed few-shot prompting; and
 4. `google/gemma-3-1b-it` with the same prompting protocol.
 
-The objective is a reproducible educational comparison, not a claim that architecture alone explains quality.
-Model size, pretraining, tokenization, precision, and adaptation are confounded.
+This is an educational comparison. Model size, pretraining, tokenization, precision, and adaptation method differ,
+so the results are not an architecture-only comparison.
 
-## Dataset and preprocessing
+## Dataset
 
-OPUS Books is literary/book-domain parallel data. The dataset card and upstream license information are authoritative;
-check them before redistributing data. The pipeline normalizes whitespace only, preserving punctuation, accents, and
-capitalization; removes empty pairs and duplicate normalized sources; hashes and orders records deterministically;
-and assigns disjoint train/validation/test manifests with seed 42. Defaults are 10,000/1,000/500 pairs. The
-training tokenizer is fit only on training text. Training length limits are explicit; validation/test records are
-retained and truncation flags are reported rather than silently removing hard examples. Actual counts and a SHA-256
-fingerprint are saved in `data/preprocessing_stats.json`.
+The project uses the public [Helsinki-NLP/opus_books](https://huggingface.co/datasets/Helsinki-NLP/opus_books)
+English-French (`en-fr`) configuration. OPUS Books is literary/book-domain parallel text; consult the upstream
+dataset card and license before redistributing data.
 
-## Installation and access
+Preprocessing:
+
+- whitespace normalization;
+- empty-pair and duplicate-source removal;
+- deterministic ordering with seed 42;
+- disjoint train/validation/test manifests;
+- tokenizer fitting on training text only; and
+- explicit length limits with truncation flags retained for validation/test examples.
+
+The configured split is 10,000 training pairs, 1,000 validation pairs, and 500 test pairs. The split fingerprint and
+preprocessing statistics are saved in [`results/data/preprocessing_stats.json`](results/data/preprocessing_stats.json).
+
+## Models and evaluation
+
+All four models translate the same ordered 500-example test set. The pipeline records:
+
+- corpus SacreBLEU and chrF;
+- training or fine-tuning time where applicable;
+- inference time including tokenization;
+- total and trainable parameter counts;
+- deterministic main predictions;
+- enabled-sampling temperature analysis; and
+- representative outputs for bilingual ethical review.
+
+The main comparison uses deterministic greedy decoding. Temperature sampling is a separate experiment and must not
+replace the main benchmark.
+
+## Measured benchmark results
+
+The captured full Colab run produced these main results:
+
+| Model | BLEU | chrF | Parameters | Seconds/sentence |
+|---|---:|---:|---:|---:|
+| Basic Transformer | 0.41 | 9.44 | 15.3M | 0.1164 |
+| mT5-small | 0.01 | 1.73 | 300.2M | 0.0624 |
+| LLaMA | 13.10 | 39.65 | 1.24B | 1.0164 |
+| Gemma | **15.59** | **42.22** | 999.9M | 1.7936 |
+
+Gemma achieved the highest measured BLEU and chrF. The short mT5 run completed with finite loss, but its very low
+score and repeated `<extra_id_0>` outputs show that it did not learn a useful translation model under the modest
+assignment compute budget. The basic Transformer also produced many `<unk>` tokens. These limitations are reported
+instead of being hidden.
+
+## Repository layout
+
+- [`notebooks/assignment3_colab.ipynb`](notebooks/assignment3_colab.ipynb) — one resumable Colab workflow.
+- [`scripts/run_pipeline.py`](scripts/run_pipeline.py) — preparation, training, generation, evaluation, and reporting.
+- [`src/`](src/) — dataset, model, inference, evaluation, plotting, reporting, and ethics modules.
+- [`configs/default.yaml`](configs/default.yaml) — reproducible dataset, model, and evaluation settings.
+- [`results/data/`](results/data/) — persisted split files, manifests, and preprocessing statistics.
+- [`results/predictions/`](results/predictions/) — four model outputs and the combined output file.
+- [`results/metrics.csv`](results/metrics.csv) — main BLEU/chrF/timing/parameter comparison.
+- [`results/plots/`](results/plots/) — generated comparison and Transformer training plots.
+
+Large model weights and optimizer checkpoints are intentionally excluded from GitHub. They are retained separately in
+the Colab/Drive archive when needed.
+
+## Installation
 
 ```bash
 python -m venv .venv
-# Windows: .venv\Scripts\activate
+# Windows:
+.venv\Scripts\activate
 pip install -r requirements.txt
-copy .env.example .env
 ```
 
-Set `HF_TOKEN` in the environment or Colab Secrets for gated LLaMA/Gemma access, and accept each model's Hugging
-Face license. The code never embeds a token and never substitutes another model. A GPU with at least roughly
-16 GB VRAM is recommended for the full sequential run; CPU is supported for smoke tests and the small Transformer.
+LLaMA and Gemma require a Hugging Face token and accepted model licenses. Set `HF_TOKEN` in the environment or use
+Colab Secrets. Never commit tokens.
 
-## Exact execution
+## Execution
+
+For a local CPU smoke test:
 
 ```bash
 python scripts/run_pipeline.py --smoke --stage all
-python scripts/run_pipeline.py --stage prepare
-python scripts/run_pipeline.py --stage train
-python scripts/run_pipeline.py --stage generate
-python scripts/run_pipeline.py --stage evaluate
-python scripts/run_pipeline.py --stage temperature
-python scripts/run_pipeline.py --stage report
 ```
 
-Use `--output-dir results/my_run` to create an isolated run. Smoke output is intentionally separate and must never be
-presented as final assignment results. Full checkpoints are ignored by Git; small metrics, plots, and review samples
-can be retained. Add `--reports-dir results/reports` when reports should be persisted beside a Drive-backed run.
-Stages are resumable at the data-fingerprint/checkpoint level, and training scripts select validation-best checkpoints.
-The runner validates required files, finite metrics, and exact prediction coverage before reporting success; a zero exit
-code is not enough. Direct execution (`python scripts/run_pipeline.py`) and module execution are both supported.
+For the full experiment on a GPU:
 
-The mT5 assignment run is intentionally modest: one FP32 epoch budget capped at 300 micro-steps, batch size 2 with
-gradient accumulation, and up to 50 validation batches. It checks loss and gradient finiteness before saving a
-model-only `safetensors` checkpoint. Optimizer state is not saved, so model-only checkpoints cannot provide exact
-optimizer-state resumption. Failed-run metadata is copied to `failed_runs/`; the known failed `checkpoint-313`,
-`checkpoint-626`, and `checkpoint-939` directories are never deleted automatically.
+```bash
+python -m scripts.run_pipeline --stage prepare --output-dir results
+python -m scripts.run_pipeline --stage train --output-dir results
+python -m scripts.run_pipeline --stage generate --output-dir results
+python -m scripts.run_pipeline --stage evaluate --output-dir results --reports-dir results/reports
+python -m scripts.run_pipeline --stage temperature --output-dir results --reports-dir results/reports
+python -m scripts.run_pipeline --stage report --output-dir results --reports-dir results/reports
+```
 
-## Repository structure
+The runner validates checkpoint presence, finite metrics, and exact prediction coverage. A zero exit code alone is
+not considered successful. Predictions are written incrementally so an interrupted generation stage can resume.
+Models are loaded sequentially and GPU memory is released between models.
 
-`src/data.py` prepares stable splits; `src/tokenization.py` and `src/transformer.py` implement the custom model;
-`src/finetune_mt5.py` fine-tunes mT5; `src/prompted_models.py` handles native chat templates and new-token-only
-decoding; `src/evaluate.py`, `src/temperature_analysis.py`, `src/ethical_analysis.py`, and `src/plots.py` produce
-analysis outputs. `scripts/run_pipeline.py` is the single entry point. The Colab notebook calls these same modules.
-
-## Colab
-
-Open the exact notebook path
-[`notebooks/assignment3_colab.ipynb`](notebooks/assignment3_colab.ipynb), select a GPU runtime, add `HF_TOKEN` to
-Colab Secrets after accepting the gated-model licenses, mount Drive, and use **Run all**. The first cells clone/setup
-the repository, restore the Drive-backed run, check GPU/token/storage access, and expose an opt-in cleanup cell that
-targets only the three known failed mT5 checkpoint names. The single pipeline cell prepares data, reuses a compatible
-Transformer checkpoint, restarts invalid mT5 training from original FP32 pretrained weights, generates four complete
-prediction files incrementally, runs BLEU/chrF/timing/parameter/temperature analysis, creates plots and an evidence-only
-ethics review queue, validates artifacts, and writes reports/archive outputs. Models are loaded sequentially and GPU
-memory is released between them.
-
-## Outputs and evaluation
-
-The full run writes `results/metrics.csv`, `run_metadata.json`, predictions, training histories, temperature
-outputs/metrics, plots, and a review queue. Metrics use corpus SacreBLEU and chrF with saved signatures. Main
-comparison decoding is deterministic greedy; sampling temperatures are not interpreted under greedy decoding.
-Inference timing excludes model loading and includes tokenization, as recorded in each training-history JSON. The
-same ordered test set is used for every model. CUDA timing is synchronized where applicable.
-
-## Required sampling experiment
-
-`--stage temperature` is separate from the main comparison and uses temperatures 0.3, 0.7, and 1.0, three fixed
-seeds, the first 50 records of the persisted ordered test split, enabled sampling, and saved outputs plus aggregate
-BLEU/chrF mean and standard deviation. It must
-not replace or alter deterministic benchmark scores.
+The mT5 run uses FP32, small batches, gradient accumulation, finite loss/gradient checks, a short configurable
+training budget, and model-only `safetensors` checkpoints. Model-only checkpoints cannot provide exact optimizer-state
+resumption. Previous failed-run metadata is preserved separately; no failed checkpoints or unrelated files are
+deleted automatically.
 
 ## Responsible AI
 
-`ethical_review.jsonl` contains actual model outputs for bilingual human review with labels initially marked `pending`.
-Reviewers should record evidence for bias, hallucinated additions, cultural misrepresentation, sensitive-content
-mistranslation, names/numbers, gender ambiguity, idioms, and omissions. Potential risks are not reported as observed
-errors. A supplemental challenge set may be supplied separately and is excluded from benchmark scores. Mitigations
-include bilingual review, terminology constraints, representative data, targeted challenge cases, and escalation for
-high-stakes use.
+The ethics output is a review queue containing source text, reference translations, model translations, and a
+`pending` human-review label. It is not a fabricated human evaluation. Reviewers should examine hallucinations,
+omissions, names and numbers, gender ambiguity, idioms, cultural misrepresentation, bias, and sensitive-content
+mistranslation. Potential risks should only be marked as observed errors when supported by bilingual review.
 
-## Results status and conclusion
+Recommended mitigations include representative evaluation data, bilingual review, terminology constraints, targeted
+challenge examples outside benchmark scores, and escalation for high-stakes use.
 
-Before a real full run, results are **pending**. Do not copy smoke metrics into an assignment report. The `evaluate`,
-`temperature`, or explicit `report` stage updates `reports/model_comparison.md` and `reports/ethical_analysis.md` from
-genuine saved artifacts. The report identifies the highest measured quality and fastest measured inference model
-separately; no evidence-based winner is named before the full experiment completes.
+## Submission notes
+
+Commit the source code, notebook, README, lightweight metrics, plots, reports, manifests, and generated text samples.
+Do not commit model weights, optimizer state, tokens, caches, or the large ZIP archive. The assignment also requires
+a separate student-specific Word document converted to PDF containing the student name, registration number, assignment
+title, dataset link, and GitHub repository link; submit that PDF through the LMS.
