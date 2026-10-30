@@ -26,13 +26,17 @@ transformer:
   min_frequency: 2
 mt5:
   model_name: google/mt5-small
-  batch_size: 4
+  batch_size: 2
   gradient_accumulation_steps: 8
-  epochs: 3
+  epochs: 1
   learning_rate: 0.00005
   max_source_tokens: 128
   max_target_tokens: 128
-  patience: 2
+  max_train_steps: 300
+  validation_steps: 50
+  min_free_gib: 4.0
+  retain_checkpoints: 1
+  resume_valid_checkpoint: true
 prompted:
   models:
     llama: meta-llama/Llama-3.2-1B-Instruct

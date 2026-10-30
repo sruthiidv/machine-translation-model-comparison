@@ -59,9 +59,16 @@ def generate_model(config: dict[str, Any], data_dir: str, output_dir: str, model
     if smoke:
         train_records, test_records = train_records[:3], test_records[:16]
     examples = train_records[:config["prompted"]["few_shot_count"]]
+    path = (Path(output_dir) / "temperature" / f"{model_key}_t{temperature}_seed{seed}.jsonl"
+            if sampling else Path(output_dir) / "predictions" / f"{model_key}.jsonl")
+    existing = {json.loads(line)["example_id"]: json.loads(line)
+                for line in path.read_text(encoding="utf-8").splitlines() if line.strip()} if path.exists() else {}
     results = []
     started = time.perf_counter()
     for record in test_records:
+        if record["example_id"] in existing:
+            results.append(existing[record["example_id"]])
+            continue
         prompt = _prompt(tokenizer, examples, record["source"])
         inputs = tokenizer(prompt, return_tensors="pt", truncation=True, max_length=config["prompted"]["max_input_tokens"]).to(device)
         if sampling:
@@ -76,11 +83,9 @@ def generate_model(config: dict[str, Any], data_dir: str, output_dir: str, model
         raw = tokenizer.decode(new_tokens, skip_special_tokens=True)
         prediction = raw.strip().splitlines()[0].strip() if raw.strip() else ""
         results.append({**record, "model": model_key, "prediction": prediction, "raw_output": raw, "temperature": temperature if sampling else None})
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text("\n".join(json.dumps(x, ensure_ascii=False) for x in results) + "\n", encoding="utf-8")
     elapsed = time.perf_counter() - started
-    subdir = Path(output_dir) / ("temperature" if sampling else "predictions")
-    subdir.mkdir(parents=True, exist_ok=True)
-    filename = f"{model_key}_t{temperature}_seed{seed}.jsonl" if sampling else f"{model_key}.jsonl"
-    (subdir / filename).write_text("\n".join(json.dumps(x, ensure_ascii=False) for x in results) + "\n", encoding="utf-8")
     if not sampling:
         write_json(Path(output_dir) / "training_history" / f"{model_key}.json", {"training_seconds": "N/A — prompting only", "inference_seconds_including_tokenization": elapsed, "inference_sentences": len(results), "seconds_per_sentence": elapsed / len(results), "sentences_per_second": len(results) / elapsed, "parameters": sum(p.numel() for p in model.parameters()), "parameters_updated": 0, "adaptation": "few-shot prompting", "model_name": model_name})
     del model

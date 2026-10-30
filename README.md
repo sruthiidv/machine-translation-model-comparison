@@ -52,6 +52,14 @@ Use `--output-dir results/my_run` to create an isolated run. Smoke output is int
 presented as final assignment results. Full checkpoints are ignored by Git; small metrics, plots, and review samples
 can be retained. Add `--reports-dir results/reports` when reports should be persisted beside a Drive-backed run.
 Stages are resumable at the data-fingerprint/checkpoint level, and training scripts select validation-best checkpoints.
+The runner validates required files, finite metrics, and exact prediction coverage before reporting success; a zero exit
+code is not enough. Direct execution (`python scripts/run_pipeline.py`) and module execution are both supported.
+
+The mT5 assignment run is intentionally modest: one FP32 epoch budget capped at 300 micro-steps, batch size 2 with
+gradient accumulation, and up to 50 validation batches. It checks loss and gradient finiteness before saving a
+model-only `safetensors` checkpoint. Optimizer state is not saved, so model-only checkpoints cannot provide exact
+optimizer-state resumption. Failed-run metadata is copied to `failed_runs/`; the known failed `checkpoint-313`,
+`checkpoint-626`, and `checkpoint-939` directories are never deleted automatically.
 
 ## Repository structure
 
@@ -62,9 +70,15 @@ analysis outputs. `scripts/run_pipeline.py` is the single entry point. The Colab
 
 ## Colab
 
-Open `notebooks/assignment3_colab.ipynb`, select a GPU runtime, install requirements, add `HF_TOKEN` to Colab
-Secrets, and execute cells in order. The notebook runs preparation, training, generation, evaluation, sampling, ethics,
-and final comparison without duplicating implementation. Models are loaded sequentially to limit memory.
+Open the exact notebook path
+[`notebooks/assignment3_colab.ipynb`](notebooks/assignment3_colab.ipynb), select a GPU runtime, add `HF_TOKEN` to
+Colab Secrets after accepting the gated-model licenses, mount Drive, and use **Run all**. The first cells clone/setup
+the repository, restore the Drive-backed run, check GPU/token/storage access, and expose an opt-in cleanup cell that
+targets only the three known failed mT5 checkpoint names. The single pipeline cell prepares data, reuses a compatible
+Transformer checkpoint, restarts invalid mT5 training from original FP32 pretrained weights, generates four complete
+prediction files incrementally, runs BLEU/chrF/timing/parameter/temperature analysis, creates plots and an evidence-only
+ethics review queue, validates artifacts, and writes reports/archive outputs. Models are loaded sequentially and GPU
+memory is released between them.
 
 ## Outputs and evaluation
 

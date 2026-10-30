@@ -4,7 +4,14 @@ from __future__ import annotations
 
 import argparse
 import json
+import sys
 from pathlib import Path
+
+# Keep both `python scripts/run_pipeline.py` and `python -m scripts.run_pipeline`
+# usable in Colab and from a fresh checkout.
+ROOT = Path(__file__).resolve().parents[1]
+if str(ROOT) not in sys.path:
+    sys.path.insert(0, str(ROOT))
 
 from src.data import prepare_dataset
 from src.evaluate import evaluate_directory
@@ -14,7 +21,7 @@ from src.plots import make_plots
 from src.prompted_models import check_model_access, generate_model
 from src.reporting import generate_reports
 from src.train_transformer import generate as generate_transformer, train as train_transformer
-from src.utils import collect_metadata, get_device, load_config, write_json
+from src.utils import collect_metadata, get_device, load_config, validate_run, write_json
 
 
 def main() -> None:
@@ -68,10 +75,18 @@ def main() -> None:
         if args.smoke:
             raise RuntimeError("Smoke outputs cannot be promoted to final reports.")
         generate_reports(output_dir, args.reports_dir)
+    validation = validate_run(output_dir, config, smoke=args.smoke, stage=args.stage)
+    if not validation["ok"]:
+        raise RuntimeError("Stage validation failed:\n- " + "\n- ".join(validation["errors"]))
     metadata = collect_metadata(config, output_dir.name, get_device())
     metadata["model_revisions"] = access_revisions
-    write_json(output_dir / "run_metadata.json", metadata)
-    print(json.dumps({"output_dir": str(output_dir), "stage": args.stage, "smoke": args.smoke}, indent=2))
+    metadata["stage_status"] = validation
+    metadata_path = output_dir / "run_metadata.json"
+    previous = json.loads(metadata_path.read_text(encoding="utf-8")) if metadata_path.exists() else {}
+    previous.update(metadata)
+    write_json(metadata_path, previous)
+    print(json.dumps({"output_dir": str(output_dir), "stage": args.stage, "smoke": args.smoke,
+                      "validation": validation}, indent=2))
 
 
 if __name__ == "__main__":

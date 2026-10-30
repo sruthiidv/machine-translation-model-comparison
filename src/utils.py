@@ -6,6 +6,7 @@ import json
 import os
 import platform
 import random
+import shutil
 import subprocess
 from pathlib import Path
 from typing import Any
@@ -76,3 +77,49 @@ def write_json(path: str | Path, value: Any) -> None:
     target = Path(path)
     target.parent.mkdir(parents=True, exist_ok=True)
     target.write_text(json.dumps(value, ensure_ascii=False, indent=2, default=str), encoding="utf-8")
+
+
+def available_gib(path: str | Path) -> float:
+    return shutil.disk_usage(Path(path)).free / (1024 ** 3)
+
+
+def validate_run(output_dir: str | Path, config: dict[str, Any], smoke: bool = False,
+                 stage: str = "all") -> dict[str, Any]:
+    """Validate persisted evidence; a successful process alone is not sufficient."""
+    output = Path(output_dir)
+    errors: list[str] = []
+    required = [output / "data" / "preprocessing_stats.json"]
+    if stage in {"train", "generate", "evaluate", "temperature", "ethics", "report", "all"}:
+        required.extend([output / "models" / "best.pt", output / "training_history" / "transformer.json"])
+    if stage in {"generate", "evaluate", "temperature", "all"} and not smoke:
+        required.extend([output / "models" / "mt5" / "config.json",
+                         output / "training_history" / "mt5.json"])
+        for model in ("basic_transformer", "mt5", "llama", "gemma"):
+            required.append(output / "predictions" / f"{model}.jsonl")
+    if stage in {"evaluate", "all"}:
+        required.extend([output / "metrics.csv", output / "plots" / "comparison.png",
+                         output / "ethical_review.jsonl"])
+    if stage in {"temperature", "all"} and not smoke:
+        required.extend([output / "temperature" / "aggregated_metrics.csv",
+                         output / "plots" / "temperature.png"])
+    for path in required:
+        if not path.exists():
+            errors.append(f"missing required artifact: {path}")
+    expected_ids = []
+    test_path = output / "data" / "test.jsonl"
+    if test_path.exists():
+        expected_ids = [json.loads(line)["example_id"] for line in test_path.read_text(encoding="utf-8").splitlines() if line.strip()]
+    if stage in {"generate", "evaluate", "temperature", "all"} and expected_ids:
+        for model in ("basic_transformer", "mt5", "llama", "gemma"):
+            path = output / "predictions" / f"{model}.jsonl"
+            if path.exists():
+                rows = [json.loads(line) for line in path.read_text(encoding="utf-8").splitlines() if line.strip()]
+                if [row.get("example_id") for row in rows] != expected_ids[:len(rows)] or len(rows) != len(expected_ids):
+                    errors.append(f"prediction coverage mismatch for {model}: {len(rows)}/{len(expected_ids)}")
+    metrics_path = output / "metrics.csv"
+    if metrics_path.exists() and stage in {"evaluate", "all"}:
+        import pandas as pd
+        metrics = pd.read_csv(metrics_path)
+        if metrics.empty or not metrics[["bleu", "chrf"]].map(lambda value: value == value and value not in (float("inf"), float("-inf"))).all().all():
+            errors.append("metrics are empty or non-finite")
+    return {"ok": not errors, "errors": errors, "checked_at": __import__("datetime").datetime.now().isoformat()}

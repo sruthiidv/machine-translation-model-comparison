@@ -37,13 +37,20 @@ def train(config: dict[str, Any], data_dir: str, output_dir: str, smoke: bool = 
     criterion = nn.CrossEntropyLoss(ignore_index=target_tok.pad_id)
     checkpoint_dir = Path(output_dir) / "models"
     checkpoint_dir.mkdir(parents=True, exist_ok=True)
-    source_tok.save(checkpoint_dir / "source_tokenizer.json")
-    target_tok.save(checkpoint_dir / "target_tokenizer.json")
     data_manifest = json.loads((Path(data_dir) / "preprocessing_stats.json").read_text(encoding="utf-8"))
     fingerprint_path = checkpoint_dir / "data_fingerprint.txt"
     existing_checkpoint = checkpoint_dir / "best.pt"
     if existing_checkpoint.exists() and fingerprint_path.exists() and not smoke and fingerprint_path.read_text(encoding="utf-8") == data_manifest["split_fingerprint"]:
         checkpoint = torch.load(existing_checkpoint, map_location=device)
+        saved_config = checkpoint.get("config", {})
+        expected_config = {key: model_cfg[key] for key in ("d_model", "nhead", "num_encoder_layers",
+                                                           "num_decoder_layers", "dim_feedforward", "dropout")}
+        if any(saved_config.get(key) != value for key, value in expected_config.items()):
+            raise RuntimeError("Transformer checkpoint configuration does not match configs/default.yaml; refusing reuse.")
+        saved_source = SimpleTokenizer.load(checkpoint_dir / "source_tokenizer.json")
+        saved_target = SimpleTokenizer.load(checkpoint_dir / "target_tokenizer.json")
+        if saved_source.token_to_id != source_tok.token_to_id or saved_target.token_to_id != target_tok.token_to_id:
+            raise RuntimeError("Transformer checkpoint tokenizer does not match the current training data; refusing reuse.")
         model.load_state_dict(checkpoint["model"])
         history_path = Path(output_dir) / "training_history" / "transformer.json"
         history = json.loads(history_path.read_text(encoding="utf-8")) if history_path.exists() else {}
@@ -51,6 +58,8 @@ def train(config: dict[str, Any], data_dir: str, output_dir: str, smoke: bool = 
                 "history": history.get("history", []), "training_seconds": history.get("training_seconds", 0.0),
                 "parameters": sum(p.numel() for p in model.parameters()),
                 "resumed": True}
+    source_tok.save(checkpoint_dir / "source_tokenizer.json")
+    target_tok.save(checkpoint_dir / "target_tokenizer.json")
     history, best_loss, wait = [], float("inf"), 0
     epochs = 1 if smoke else model_cfg["epochs"]
     started = time.perf_counter()
@@ -103,11 +112,18 @@ def generate(config: dict[str, Any], data_dir: str, output_dir: str, smoke: bool
         records = records[:16]
     predictions = []
     started = time.perf_counter()
+    path = Path(output_dir) / "predictions" / "basic_transformer.jsonl"
+    existing = {}
+    if path.exists():
+        existing = {json.loads(line)["example_id"]: json.loads(line)
+                    for line in path.read_text(encoding="utf-8").splitlines() if line.strip()}
     for record in records:
+        if record["example_id"] in existing:
+            predictions.append(existing[record["example_id"]])
+            continue
         source = torch.tensor([source_tok.encode(record["source"])], device=next(model.parameters()).device)
         generated = model.translate(source, target_tok.bos_id, target_tok.eos_id, config["evaluation"]["max_new_tokens"])[0].tolist()
         predictions.append({**record, "model": "basic_transformer", "prediction": target_tok.decode(generated), "raw_output": generated})
-    path = Path(output_dir) / "predictions" / "basic_transformer.jsonl"
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text("\n".join(json.dumps(x, ensure_ascii=False) for x in predictions) + "\n", encoding="utf-8")
     history_path = Path(output_dir) / "training_history" / "transformer.json"
